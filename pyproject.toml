@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aten-size-profiler"
+dynamic = ["version"]
+description = "ATen operator input shape and size profiler for PyTorch Eager workloads"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.13",
+    "PyYAML>=6.0",
+    "openpyxl>=3.1",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "aten_size_profiler.__version__"}
+
+[tool.setuptools]
+packages = ["aten_size_profiler"]

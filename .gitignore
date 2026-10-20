@@ -1,0 +1,12 @@
+# Local validation environment; not part of the public release.
+/env213.sh
+/ATen_Size_Profiler项目需求.md
+
+# Generated validation and build artifacts.
+/aten_size_reports/
+/logs/
+/packages/
+/build/
+/dist/
+**/__pycache__/
+*.py[cod]

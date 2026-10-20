@@ -1,0 +1,7 @@
+enabled: true
+output_dir: ./aten_size_reports/stage7_validation
+output_filename: real_model_size.xlsx
+record_stride: true
+record_stack: false
+iteration_mode: forward
+target_iter: 1
