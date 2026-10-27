@@ -14,7 +14,12 @@ import torch
 from openpyxl import Workbook
 
 from . import __version__
-from .collector import AtenCollector, CallRecord, TensorInfo
+from .collector import (
+    MEMORY_LAYOUT_MIXED,
+    AtenCollector,
+    CallRecord,
+    TensorInfo,
+)
 from .config import validate_output_path
 
 
@@ -56,6 +61,24 @@ def _format_scalar_args(
     return _format_sequence(
         [[path, value] for path, value in scalar_args]
     )
+
+
+def _merge_memory_layouts(
+    merged: list[str | None] | None,
+    inputs: tuple[TensorInfo, ...],
+) -> list[str | None]:
+    """Fold one call into a group's per-input layouts.
+
+    Memory layout is not part of the unique_shapes key, so calls in one group
+    (for example with record_stride=false) may differ; such inputs become
+    ``mixed`` instead of taking the first call's layout.
+    """
+    if merged is None:
+        return [tensor.memory_layout for tensor in inputs]
+    for index, tensor in enumerate(inputs):
+        if merged[index] != tensor.memory_layout:
+            merged[index] = MEMORY_LAYOUT_MIXED
+    return merged
 
 
 TRUNCATION_MARKER = "...<TRUNCATED>"
@@ -185,22 +208,26 @@ def _write_unique_shapes_sheet(
     workbook: Workbook,
     calls: list[CallRecord],
     stats: _ExportStats,
+    include_memory_layout: bool = False,
 ) -> None:
     worksheet = workbook.create_sheet("unique_shapes")
     worksheet.freeze_panes = "A2"
+    header = [
+        "op_name",
+        "input_shapes",
+        "input_dtypes",
+        "input_devices",
+        "input_strides",
+        "count",
+        "op_ratio",
+        "overall_ratio",
+        "scalar_args",
+    ]
+    if include_memory_layout:
+        header.append("input_memory_layouts")
     _append_row(
         worksheet,
-        [
-            "op_name",
-            "input_shapes",
-            "input_dtypes",
-            "input_devices",
-            "input_strides",
-            "count",
-            "op_ratio",
-            "overall_ratio",
-            "scalar_args",
-        ],
+        header,
         "unique_shapes",
         1,
         stats,
@@ -216,26 +243,35 @@ def _write_unique_shapes_sheet(
         operator_calls = grouped_calls[op_name]
         shape_groups: dict[tuple[Any, ...], CallRecord] = {}
         shape_counts: dict[tuple[Any, ...], int] = defaultdict(int)
+        group_layouts: dict[tuple[Any, ...], list[str | None]] = {}
         for call in operator_calls:
             key = _unique_shape_key(call)
             shape_groups.setdefault(key, call)
             shape_counts[key] += 1
+            if include_memory_layout:
+                group_layouts[key] = _merge_memory_layouts(
+                    group_layouts.get(key),
+                    call.inputs,
+                )
 
         for key in sorted(shape_counts, key=repr):
             representative = shape_groups[key]
+            row = [
+                op_name,
+                _format_tensor_list(representative.inputs, "shape"),
+                _format_tensor_list(representative.inputs, "dtype"),
+                _format_tensor_list(representative.inputs, "device"),
+                _format_tensor_list(representative.inputs, "stride"),
+                shape_counts[key],
+                shape_counts[key] / len(operator_calls),
+                shape_counts[key] / total_calls if total_calls else 0,
+                _format_scalar_args(representative.scalar_args),
+            ]
+            if include_memory_layout:
+                row.append(_format_sequence(group_layouts[key]))
             _append_row(
                 worksheet,
-                [
-                    op_name,
-                    _format_tensor_list(representative.inputs, "shape"),
-                    _format_tensor_list(representative.inputs, "dtype"),
-                    _format_tensor_list(representative.inputs, "device"),
-                    _format_tensor_list(representative.inputs, "stride"),
-                    shape_counts[key],
-                    shape_counts[key] / len(operator_calls),
-                    shape_counts[key] / total_calls if total_calls else 0,
-                    _format_scalar_args(representative.scalar_args),
-                ],
+                row,
                 "unique_shapes",
                 row_number,
                 stats,
@@ -249,28 +285,32 @@ def _write_detail_sheet(
     iteration: Any,
     rank: Any,
     stats: _ExportStats,
+    include_memory_layout: bool = False,
 ) -> None:
     worksheet = workbook.create_sheet("detail")
     worksheet.freeze_panes = "A2"
+    header = [
+        "call_id",
+        "op_name",
+        "input_count",
+        "input_paths",
+        "input_shapes",
+        "input_dtypes",
+        "input_devices",
+        "input_strides",
+        "input_numels",
+        "input_element_sizes",
+        "input_logical_bytes",
+        "stack",
+        "iteration",
+        "rank",
+        "scalar_args",
+    ]
+    if include_memory_layout:
+        header.append("input_memory_layouts")
     _append_row(
         worksheet,
-        [
-            "call_id",
-            "op_name",
-            "input_count",
-            "input_paths",
-            "input_shapes",
-            "input_dtypes",
-            "input_devices",
-            "input_strides",
-            "input_numels",
-            "input_element_sizes",
-            "input_logical_bytes",
-            "stack",
-            "iteration",
-            "rank",
-            "scalar_args",
-        ],
+        header,
         "detail",
         1,
         stats,
@@ -281,25 +321,28 @@ def _write_detail_sheet(
         call_iteration = (
             call.iteration if call.iteration is not None else iteration
         )
+        row = [
+            call.call_id,
+            call.op_name,
+            len(call.inputs),
+            _format_tensor_list(call.inputs, "path"),
+            _format_tensor_list(call.inputs, "shape"),
+            _format_tensor_list(call.inputs, "dtype"),
+            _format_tensor_list(call.inputs, "device"),
+            _format_tensor_list(call.inputs, "stride"),
+            _format_tensor_list(call.inputs, "numel"),
+            _format_tensor_list(call.inputs, "element_size"),
+            sum(tensor.logical_bytes for tensor in call.inputs),
+            "".join(call.stack),
+            call_iteration,
+            rank,
+            _format_scalar_args(call.scalar_args),
+        ]
+        if include_memory_layout:
+            row.append(_format_tensor_list(call.inputs, "memory_layout"))
         _append_row(
             worksheet,
-            [
-                call.call_id,
-                call.op_name,
-                len(call.inputs),
-                _format_tensor_list(call.inputs, "path"),
-                _format_tensor_list(call.inputs, "shape"),
-                _format_tensor_list(call.inputs, "dtype"),
-                _format_tensor_list(call.inputs, "device"),
-                _format_tensor_list(call.inputs, "stride"),
-                _format_tensor_list(call.inputs, "numel"),
-                _format_tensor_list(call.inputs, "element_size"),
-                sum(tensor.logical_bytes for tensor in call.inputs),
-                "".join(call.stack),
-                call_iteration,
-                rank,
-                _format_scalar_args(call.scalar_args),
-            ],
+            row,
             "detail",
             row_number,
             stats,
@@ -313,26 +356,30 @@ def _write_input_tensors_sheet(
     iteration: Any,
     rank: Any,
     stats: _ExportStats,
+    include_memory_layout: bool = False,
 ) -> None:
     worksheet = workbook.create_sheet("input_tensors")
     worksheet.freeze_panes = "A2"
+    header = [
+        "call_id",
+        "op_name",
+        "input_index",
+        "input_path",
+        "shape",
+        "dtype",
+        "device",
+        "stride",
+        "numel",
+        "element_size",
+        "logical_bytes",
+        "iteration",
+        "rank",
+    ]
+    if include_memory_layout:
+        header.append("memory_layout")
     _append_row(
         worksheet,
-        [
-            "call_id",
-            "op_name",
-            "input_index",
-            "input_path",
-            "shape",
-            "dtype",
-            "device",
-            "stride",
-            "numel",
-            "element_size",
-            "logical_bytes",
-            "iteration",
-            "rank",
-        ],
+        header,
         "input_tensors",
         1,
         stats,
@@ -344,23 +391,26 @@ def _write_input_tensors_sheet(
             call.iteration if call.iteration is not None else iteration
         )
         for input_index, tensor in enumerate(call.inputs):
+            row = [
+                call.call_id,
+                call.op_name,
+                input_index,
+                tensor.path,
+                _format_shape(tensor.shape),
+                tensor.dtype,
+                tensor.device,
+                _format_stride(tensor.stride),
+                tensor.numel,
+                tensor.element_size,
+                tensor.logical_bytes,
+                call_iteration,
+                rank,
+            ]
+            if include_memory_layout:
+                row.append(tensor.memory_layout)
             _append_row(
                 worksheet,
-                [
-                    call.call_id,
-                    call.op_name,
-                    input_index,
-                    tensor.path,
-                    _format_shape(tensor.shape),
-                    tensor.dtype,
-                    tensor.device,
-                    _format_stride(tensor.stride),
-                    tensor.numel,
-                    tensor.element_size,
-                    tensor.logical_bytes,
-                    call_iteration,
-                    rank,
-                ],
+                row,
                 "input_tensors",
                 row_number,
                 stats,
@@ -410,10 +460,22 @@ def export_collector(
     metadata: Mapping[str, Any] | None = None,
     iteration: Any = None,
     rank: Any = None,
+    record_memory_format: bool | None = None,
 ) -> Path:
+    """Export ``collector`` to a five-sheet Excel report.
+
+    ``record_memory_format`` controls the memory layout columns; None adds
+    them only when a recorded input carries a memory layout.
+    """
     destination = validate_output_path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
+    if record_memory_format is None:
+        record_memory_format = any(
+            tensor.memory_layout is not None
+            for call in collector.calls
+            for tensor in call.inputs
+        )
     report_metadata = _default_metadata(collector, destination)
     if metadata is not None:
         report_metadata.update(metadata)
@@ -421,6 +483,7 @@ def export_collector(
         report_metadata["iteration"] = iteration
     if rank is not None:
         report_metadata["rank"] = rank
+    report_metadata["record_memory_format"] = record_memory_format
 
     grouped_calls: dict[str, list[CallRecord]] = defaultdict(list)
     for call in collector.calls:
@@ -447,9 +510,17 @@ def export_collector(
     workbook = Workbook(write_only=True)
     stats = _ExportStats()
     _write_summary_sheet(workbook, collector.calls, stats)
-    _write_unique_shapes_sheet(workbook, collector.calls, stats)
-    _write_detail_sheet(workbook, collector.calls, iteration, rank, stats)
-    _write_input_tensors_sheet(workbook, collector.calls, iteration, rank, stats)
+    _write_unique_shapes_sheet(
+        workbook, collector.calls, stats, record_memory_format,
+    )
+    _write_detail_sheet(
+        workbook, collector.calls, iteration, rank, stats,
+        record_memory_format,
+    )
+    _write_input_tensors_sheet(
+        workbook, collector.calls, iteration, rank, stats,
+        record_memory_format,
+    )
     report_metadata["truncated_cells"] = stats.truncated_cells
     report_metadata["truncated_sheets"] = sorted(stats.truncated_sheets)
     _write_metadata_sheet(workbook, report_metadata, stats)

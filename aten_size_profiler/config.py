@@ -27,6 +27,8 @@ class ProfilerConfig:
     target_iter: int | None = None
     iteration_mode: str = "forward"
     config_file: Path | None = None
+    # Appended last so positional ProfilerConfig(...) calls keep working.
+    record_memory_format: bool = False
 
     @property
     def output_path(self) -> Path:
@@ -136,6 +138,7 @@ def load_config(
         "record_stride": "ATEN_SIZE_PROFILER_RECORD_STRIDE",
         "record_stack": "ATEN_SIZE_PROFILER_RECORD_STACK",
         "record_scalar_args": "ATEN_SIZE_PROFILER_RECORD_SCALAR_ARGS",
+        "record_memory_format": "ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT",
         "target_iter": "ATEN_SIZE_PROFILER_TARGET_ITER",
         "iteration_mode": "ATEN_SIZE_PROFILER_ITERATION_MODE",
     }
@@ -168,4 +171,8 @@ def load_config(
             values.get("iteration_mode", "forward")
         ),
         config_file=config_path,
+        record_memory_format=_parse_bool(
+            values.get("record_memory_format", False),
+            "record_memory_format",
+        ),
     )

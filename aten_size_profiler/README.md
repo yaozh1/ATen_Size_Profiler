@@ -57,6 +57,7 @@ python your_model.py
 | `record_stride` | `true` | 是否记录 stride。 |
 | `record_stack` | `false` | 是否记录 Python 调用栈。 |
 | `record_scalar_args` | `true` | 是否记录标量参数并纳入 `unique_shapes` 去重键。 |
+| `record_memory_format` | `false` | 是否记录输入 Tensor 的内存布局，规则见“内存布局”。 |
 | `target_iter` | `null` | 采集的 iteration，从 0 开始；`null` 表示不启用 iteration 窗口，即持续采集。 |
 | `iteration_mode` | `forward` | `forward` 或 `optimizer_step`。 |
 
@@ -165,6 +166,43 @@ torchrun --standalone --nproc_per_node=2 your_model.py
 
 同一输出路径的多次运行会互相覆盖，报表不带运行编号；需要保留历史结果时
 请更换 `output_dir` 或 `output_filename`。
+
+## 内存布局
+
+`record_memory_format: true`（或
+`ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT=true`）时，按 PyTorch
+`is_contiguous()` 判断每个输入 Tensor 的内存布局：
+
+| 维度 | `is_contiguous()` / channels-last 判断 | 结果 |
+| --- | --- | --- |
+| 4D | `True` / `False` | `NCHW` |
+| 4D | `False` / `True`（`torch.channels_last`） | `NHWC` |
+| 5D | `True` / `False` | `NCDHW` |
+| 5D | `False` / `True`（`torch.channels_last_3d`） | `NDHWC` |
+| 4D、5D | `True` / `True` | `ambiguous` |
+| 4D、5D | `False` / `False` | `non_contiguous` |
+| 其他维度 | `True` 或 `False` | `contiguous` 或 `non_contiguous` |
+
+`NCHW`/`NHWC` 等名称只表示内存排列顺序，不代表 Tensor 各维度的语义。
+`ambiguous` 常见于 C=1、H=W=1 或空 Tensor 等两种格式都成立的情况。
+不支持 `is_contiguous()` 的输入（例如稀疏 CSR）记为 `null`。
+
+开启后在原有列之后追加一列，五个 Sheet 和其他列不变；关闭时报表列与
+0.2.1 相同：
+
+| Sheet | 新列 | 内容 |
+| --- | --- | --- |
+| `input_tensors` | `memory_layout` | 该输入的布局。 |
+| `detail` | `input_memory_layouts` | 按输入顺序排列的布局列表，例如 `["NHWC","NHWC"]`。 |
+| `unique_shapes` | `input_memory_layouts` | 该分组内所有调用的布局；同一输入位置布局不一致时为 `mixed`。 |
+
+内存布局不参与 `unique_shapes` 去重，也不改变 `record_stride` 的含义。
+`record_stride: true` 时 stride 已在去重键中，同一分组内布局一致；
+`record_stride: false` 时 NCHW 和 NHWC 等不同布局的调用可能合并为一行，
+此时对应输入显示为 `mixed`，各次调用的实际布局见 `detail` 和
+`input_tensors`。`metadata` 的 `record_memory_format` 记录该开关。
+
+判断只读取 Tensor 已缓存的元数据，不访问数据，不触发 GPU 同步。
 
 ## 生命周期控制
 
