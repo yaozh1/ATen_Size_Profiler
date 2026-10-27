@@ -80,9 +80,13 @@ v0.2.0 发布后的修复版本，不新增采集能力。
 - PyTorch 2.13.0（ROCm/HIP 6.3）：CPU 和 AMD GPU 上 `full --distributed`
   回归（含稳定性和真实模型推理、训练）、`smoke --installed` 安装包检查、
   双 Rank GPU DDP 检查通过。
+- PyTorch 2.14.0（HIP 7.2.26333）：维护者在独立环境中验证 `smoke`、`core`
+  回归，Mode 生命周期检查，CNN/Transformer 在 CPU/GPU 上的推理和训练，
+  双卡 RCCL DDP，单机 8 卡真实模型 DDP 通过；稳定性检查和 `--installed`
+  不在本次验证范围内。
 - GitHub Actions：`smoke`、`core`、`installed-package` 通过；`full` 仅手动
   触发，尚未在 GitHub 上运行。
-- 未验证：PyTorch 2.14、NVIDIA CUDA、8 卡及跨节点分布式。
+- 未验证：NVIDIA CUDA、跨节点分布式。
 
 ## 0.2.0
 
