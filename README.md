@@ -34,6 +34,40 @@ ATen Size Profiler 采集 PyTorch Eager 模式下 ATen 算子的输入 Tensor
 
 ## 安装
 
+工具是纯 Python 包，可以不安装、直接使用源码，也可以用 pip 安装。两种
+方式下模型代码相同，都只需 `import aten_size_profiler`。
+
+| 方式 | 适用场景 |
+| --- | --- |
+| 直接使用源码 | 定制 PyTorch/ROCm 环境或容器内不便安装包、临时分析；修改源码后立即生效；每个运行环境都要设置 `PYTHONPATH`。 |
+| pip 安装 | 长期使用、多个项目共享；不依赖源码目录和 `PYTHONPATH`；更新源码后需重新安装。 |
+
+### 直接使用源码（无需安装）
+
+当前环境需已有 PyTorch、PyYAML 和 openpyxl。把 `PYTHONPATH` 指向项目
+根目录，再用环境变量配置采集：
+
+```bash
+# 保留环境中已有的 PYTHONPATH
+export PYTHONPATH=/path/to/ATen_Size_Profiler${PYTHONPATH:+:$PYTHONPATH}
+
+ATEN_SIZE_PROFILER_ENABLED=true \
+ATEN_SIZE_PROFILER_ITERATION_MODE=forward \
+ATEN_SIZE_PROFILER_TARGET_ITER=10 \
+python your_model.py
+```
+
+```python
+import aten_size_profiler  # 在模型执行前导入一次
+```
+
+上例只采集第 11 次（`target_iter` 从 0 开始）顶层模型 forward，进程退出时
+报表写入当前工作目录下的 `aten_size_reports/aten_size_profile_size.xlsx`。
+`ENABLED` 默认即为 `true`；`TARGET_ITER` 不设置时持续采集整个进程。训练
+场景把 `ITERATION_MODE` 改为 `optimizer_step`。全部配置项见“配置”。
+
+### pip 安装
+
 在项目根目录执行：
 
 ```bash
@@ -41,14 +75,19 @@ python -m pip install --no-deps .
 ```
 
 `--no-deps` 避免 pip 替换定制的 PyTorch/CUDA/ROCm 环境。普通环境可以
-去掉该参数，由 pip 按 `pyproject.toml` 安装依赖。安装后使用不依赖源码
-目录，也不需要设置 `PYTHONPATH=.`。
+去掉该参数，由 pip 按 `pyproject.toml` 安装依赖。
 
-检查 PyTorch 环境：
+### 检查环境
 
 ```bash
 python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+ATEN_SIZE_PROFILER_ENABLED=false \
+python -c "import aten_size_profiler as p; print(p.__version__, p.__file__)"
 ```
+
+第二条确认实际导入的是哪份代码；两种方式同时存在时，`PYTHONPATH` 中的
+源码优先。导入即会启用采集，这里设置 `ENABLED=false`，避免进程退出时
+生成报表。
 
 ## 配置
 
@@ -73,6 +112,8 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 各配置项的详细规则见包内 README。
 
 ## 快速使用
+
+以下示例假设已按“安装”设置 `PYTHONPATH` 或已用 pip 安装。
 
 ### 推理
 
@@ -204,7 +245,7 @@ README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传�
 | PyTorch 2.13.0（ROCm/HIP 6.3），CPU 与 AMD GPU | `full --distributed` 回归（含稳定性、真实模型推理和训练 CPU/GPU 各 4 组、CPU 双 Rank gloo）、`smoke --installed` 安装包检查、双 Rank RCCL DDP 通过。 |
 | PyTorch 2.14 | 尚未验收。 |
 | NVIDIA CUDA、8 卡及跨节点分布式 | 当前代码尚未验证。 |
-| GitHub Actions | 工作流已提供并通过 actionlint 静态检查，尚未在 GitHub 上运行。 |
+| GitHub Actions | `release/0.2.1`（`542dea8`）上 `smoke`、`core`、`installed-package` 通过；`full` 仅手动触发，尚未在 GitHub 上运行。 |
 
 ## 测试
 

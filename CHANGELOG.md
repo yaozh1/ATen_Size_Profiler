@@ -62,8 +62,9 @@ v0.2.0 发布后的修复版本，不新增采集能力。
 ### 文档、测试和 CI
 
 - 新增根目录 `README.md` 和本文件；`pyproject.toml` 增加
-  `readme = "README.md"`。包内 `aten_size_profiler/README.md` 保留详细配置
-  和使用说明。
+  `readme = "README.md"`。根目录 README 说明直接使用源码（设置
+  `PYTHONPATH`）和 pip 安装两种方式；包内 `aten_size_profiler/README.md`
+  保留详细配置和使用说明。
 - 补充已知限制：`optimizer_step` 模式下训练 step 之间的验证 forward、默认
   持续采集的内存和行数风险、`unique_shapes` 与内存聚合 API 的去重差异、
   多次运行覆盖报表。
@@ -79,8 +80,9 @@ v0.2.0 发布后的修复版本，不新增采集能力。
 - PyTorch 2.13.0（ROCm/HIP 6.3）：CPU 和 AMD GPU 上 `full --distributed`
   回归（含稳定性和真实模型推理、训练）、`smoke --installed` 安装包检查、
   双 Rank GPU DDP 检查通过。
-- 未验证：PyTorch 2.14、NVIDIA CUDA、8 卡及跨节点分布式、GitHub Actions
-  实际运行。
+- GitHub Actions：`smoke`、`core`、`installed-package` 通过；`full` 仅手动
+  触发，尚未在 GitHub 上运行。
+- 未验证：PyTorch 2.14、NVIDIA CUDA、8 卡及跨节点分布式。
 
 ## 0.2.0
 
