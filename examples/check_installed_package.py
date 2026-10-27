@@ -164,7 +164,7 @@ def main() -> None:
     ), module_path
     assert venv_root in module_path.parents, module_path
     installed_version = importlib.metadata.version("aten-size-profiler")
-    assert installed_version == profiler.__version__ == "0.2.0"
+    assert installed_version == profiler.__version__
     if args.mode == "forward":
         _run_inference(device, output_path)
     else:

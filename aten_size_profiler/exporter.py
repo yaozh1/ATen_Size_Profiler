@@ -5,6 +5,7 @@ import platform
 import sys
 from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,10 +15,18 @@ from openpyxl import Workbook
 
 from . import __version__
 from .collector import AtenCollector, CallRecord, TensorInfo
+from .config import validate_output_path
 
 
 TOOL_VERSION = __version__
 MAX_EXCEL_ROWS = 1_048_576
+MAX_EXCEL_CELL_LENGTH = 32_767
+
+
+@dataclass
+class _ExportStats:
+    truncated_cells: int = 0
+    truncated_sheets: set[str] = field(default_factory=set)
 
 
 def _format_sequence(values: tuple[Any, ...] | list[Any] | None) -> str:
@@ -39,6 +48,34 @@ def _format_tensor_list(
     attribute: str,
 ) -> str:
     return _format_sequence([getattr(tensor, attribute) for tensor in inputs])
+
+
+def _format_scalar_args(
+    scalar_args: tuple[tuple[str, str], ...],
+) -> str:
+    return _format_sequence(
+        [[path, value] for path, value in scalar_args]
+    )
+
+
+TRUNCATION_MARKER = "...<TRUNCATED>"
+
+
+def _append_row(
+    worksheet: Any,
+    row: list[Any],
+    sheet_name: str,
+    row_number: int,
+    stats: _ExportStats,
+) -> None:
+    safe_row = list(row)
+    for column_number, value in enumerate(row, start=1):
+        if isinstance(value, str) and len(value) > MAX_EXCEL_CELL_LENGTH:
+            truncated_length = MAX_EXCEL_CELL_LENGTH - len(TRUNCATION_MARKER)
+            safe_row[column_number - 1] = value[:truncated_length] + TRUNCATION_MARKER
+            stats.truncated_cells += 1
+            stats.truncated_sheets.add(sheet_name)
+    worksheet.append(safe_row)
 
 
 def _format_metadata_value(value: Any) -> Any:
@@ -78,21 +115,31 @@ def _default_metadata(
         "rank": "not configured",
         "record_stride": True,
         "record_stack": False,
+        "record_scalar_args": True,
     }
 
 
-def _write_summary_sheet(workbook: Workbook, calls: list[CallRecord]) -> None:
+def _write_summary_sheet(
+    workbook: Workbook,
+    calls: list[CallRecord],
+    stats: _ExportStats,
+) -> None:
     worksheet = workbook.create_sheet("summary")
     worksheet.freeze_panes = "A2"
-    worksheet.append(
+    _append_row(
+        worksheet,
         [
             "op_name",
             "call_count",
             "unique_shape_count",
             "input_tensor_count_total",
             "input_logical_bytes_total",
-        ]
+        ],
+        "summary",
+        1,
+        stats,
     )
+    row_number = 2
 
     grouped_calls: dict[str, list[CallRecord]] = defaultdict(list)
     for call in calls:
@@ -106,15 +153,20 @@ def _write_summary_sheet(workbook: Workbook, calls: list[CallRecord]) -> None:
             for call in operator_calls
             for tensor in call.inputs
         ]
-        worksheet.append(
+        _append_row(
+            worksheet,
             [
                 op_name,
                 len(operator_calls),
                 len(unique_keys),
                 len(input_tensors),
                 sum(tensor.logical_bytes for tensor in input_tensors),
-            ]
+            ],
+            "summary",
+            row_number,
+            stats,
         )
+        row_number += 1
 
 
 def _unique_shape_key(call: CallRecord) -> tuple[Any, ...]:
@@ -126,16 +178,18 @@ def _unique_shape_key(call: CallRecord) -> tuple[Any, ...]:
             tensor.stride,
         )
         for tensor in call.inputs
-    )
+    ) + (call.scalar_args,)
 
 
 def _write_unique_shapes_sheet(
     workbook: Workbook,
     calls: list[CallRecord],
+    stats: _ExportStats,
 ) -> None:
     worksheet = workbook.create_sheet("unique_shapes")
     worksheet.freeze_panes = "A2"
-    worksheet.append(
+    _append_row(
+        worksheet,
         [
             "op_name",
             "input_shapes",
@@ -145,8 +199,13 @@ def _write_unique_shapes_sheet(
             "count",
             "op_ratio",
             "overall_ratio",
-        ]
+            "scalar_args",
+        ],
+        "unique_shapes",
+        1,
+        stats,
     )
+    row_number = 2
 
     grouped_calls: dict[str, list[CallRecord]] = defaultdict(list)
     for call in calls:
@@ -164,7 +223,8 @@ def _write_unique_shapes_sheet(
 
         for key in sorted(shape_counts, key=repr):
             representative = shape_groups[key]
-            worksheet.append(
+            _append_row(
+                worksheet,
                 [
                     op_name,
                     _format_tensor_list(representative.inputs, "shape"),
@@ -174,8 +234,13 @@ def _write_unique_shapes_sheet(
                     shape_counts[key],
                     shape_counts[key] / len(operator_calls),
                     shape_counts[key] / total_calls if total_calls else 0,
-                ]
+                    _format_scalar_args(representative.scalar_args),
+                ],
+                "unique_shapes",
+                row_number,
+                stats,
             )
+            row_number += 1
 
 
 def _write_detail_sheet(
@@ -183,10 +248,12 @@ def _write_detail_sheet(
     calls: list[CallRecord],
     iteration: Any,
     rank: Any,
+    stats: _ExportStats,
 ) -> None:
     worksheet = workbook.create_sheet("detail")
     worksheet.freeze_panes = "A2"
-    worksheet.append(
+    _append_row(
+        worksheet,
         [
             "call_id",
             "op_name",
@@ -202,14 +269,20 @@ def _write_detail_sheet(
             "stack",
             "iteration",
             "rank",
-        ]
+            "scalar_args",
+        ],
+        "detail",
+        1,
+        stats,
     )
+    row_number = 2
 
     for call in calls:
         call_iteration = (
             call.iteration if call.iteration is not None else iteration
         )
-        worksheet.append(
+        _append_row(
+            worksheet,
             [
                 call.call_id,
                 call.op_name,
@@ -225,8 +298,13 @@ def _write_detail_sheet(
                 "".join(call.stack),
                 call_iteration,
                 rank,
-            ]
+                _format_scalar_args(call.scalar_args),
+            ],
+            "detail",
+            row_number,
+            stats,
         )
+        row_number += 1
 
 
 def _write_input_tensors_sheet(
@@ -234,10 +312,12 @@ def _write_input_tensors_sheet(
     calls: list[CallRecord],
     iteration: Any,
     rank: Any,
+    stats: _ExportStats,
 ) -> None:
     worksheet = workbook.create_sheet("input_tensors")
     worksheet.freeze_panes = "A2"
-    worksheet.append(
+    _append_row(
+        worksheet,
         [
             "call_id",
             "op_name",
@@ -252,15 +332,20 @@ def _write_input_tensors_sheet(
             "logical_bytes",
             "iteration",
             "rank",
-        ]
+        ],
+        "input_tensors",
+        1,
+        stats,
     )
+    row_number = 2
 
     for call in calls:
         call_iteration = (
             call.iteration if call.iteration is not None else iteration
         )
         for input_index, tensor in enumerate(call.inputs):
-            worksheet.append(
+            _append_row(
+                worksheet,
                 [
                     call.call_id,
                     call.op_name,
@@ -275,19 +360,38 @@ def _write_input_tensors_sheet(
                     tensor.logical_bytes,
                     call_iteration,
                     rank,
-                ]
+                ],
+                "input_tensors",
+                row_number,
+                stats,
             )
+            row_number += 1
 
 
 def _write_metadata_sheet(
     workbook: Workbook,
     metadata: Mapping[str, Any],
+    stats: _ExportStats,
 ) -> None:
     worksheet = workbook.create_sheet("metadata")
     worksheet.freeze_panes = "A2"
-    worksheet.append(["key", "value"])
+    _append_row(
+        worksheet,
+        ["key", "value"],
+        "metadata",
+        1,
+        stats,
+    )
+    row_number = 2
     for key in sorted(metadata):
-        worksheet.append([key, _format_metadata_value(metadata[key])])
+        _append_row(
+            worksheet,
+            [key, _format_metadata_value(metadata[key])],
+            "metadata",
+            row_number,
+            stats,
+        )
+        row_number += 1
 
 
 def _validate_row_limits(row_counts: Mapping[str, int]) -> None:
@@ -307,7 +411,7 @@ def export_collector(
     iteration: Any = None,
     rank: Any = None,
 ) -> Path:
-    destination = Path(output_path)
+    destination = validate_output_path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     report_metadata = _default_metadata(collector, destination)
@@ -336,15 +440,18 @@ def export_collector(
             "unique_shapes": 1 + unique_shape_count,
             "detail": 1 + len(collector.calls),
             "input_tensors": 1 + input_tensor_count,
-            "metadata": 1 + len(report_metadata),
+            "metadata": 1 + len(report_metadata) + 2,
         }
     )
 
     workbook = Workbook(write_only=True)
-    _write_summary_sheet(workbook, collector.calls)
-    _write_unique_shapes_sheet(workbook, collector.calls)
-    _write_detail_sheet(workbook, collector.calls, iteration, rank)
-    _write_input_tensors_sheet(workbook, collector.calls, iteration, rank)
-    _write_metadata_sheet(workbook, report_metadata)
+    stats = _ExportStats()
+    _write_summary_sheet(workbook, collector.calls, stats)
+    _write_unique_shapes_sheet(workbook, collector.calls, stats)
+    _write_detail_sheet(workbook, collector.calls, iteration, rank, stats)
+    _write_input_tensors_sheet(workbook, collector.calls, iteration, rank, stats)
+    report_metadata["truncated_cells"] = stats.truncated_cells
+    report_metadata["truncated_sheets"] = sorted(stats.truncated_sheets)
+    _write_metadata_sheet(workbook, report_metadata, stats)
     workbook.save(destination)
     return destination

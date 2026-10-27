@@ -12,6 +12,8 @@ DEFAULT_OUTPUT_DIR = Path("aten_size_reports")
 DEFAULT_OUTPUT_FILENAME = "aten_size_profile_size.xlsx"
 CONFIG_ENV = "ATEN_SIZE_PROFILER_CONFIG"
 CONFIG_FILENAME = "aten_size_profiler.yaml"
+VALID_ITERATION_MODES = {"forward", "optimizer_step"}
+OUTPUT_EXTENSION = ".xlsx"
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,7 @@ class ProfilerConfig:
     output_filename: str = DEFAULT_OUTPUT_FILENAME
     record_stride: bool = True
     record_stack: bool = False
+    record_scalar_args: bool = True
     target_iter: int | None = None
     iteration_mode: str = "forward"
     config_file: Path | None = None
@@ -51,6 +54,53 @@ def _parse_optional_int(value: Any, name: str) -> int | None:
         return int(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{name} must be an integer or null") from error
+
+
+def _parse_iteration_mode(value: Any) -> str:
+    iteration_mode = str(value)
+    if iteration_mode not in VALID_ITERATION_MODES:
+        allowed = ", ".join(sorted(VALID_ITERATION_MODES))
+        raise ValueError(
+            f"iteration_mode must be one of: {allowed}"
+        )
+    return iteration_mode
+
+
+def validate_output_filename(value: Any) -> str:
+    """Return ``value`` if it is a bare ``*.xlsx`` file name, else raise."""
+    if not isinstance(value, str):
+        raise ValueError("output_filename must be a string")
+    if not value or value != value.strip():
+        raise ValueError(
+            f"output_filename must be a non-empty name without leading or "
+            f"trailing whitespace: {value!r}"
+        )
+    if "/" in value or "\\" in value:
+        raise ValueError(
+            f"output_filename must be a file name without directories; "
+            f"use output_dir for the directory: {value!r}"
+        )
+    name = Path(value)
+    if name.suffix.lower() != OUTPUT_EXTENSION or not name.stem:
+        raise ValueError(
+            f"output_filename must end with {OUTPUT_EXTENSION} and have a "
+            f"non-empty stem: {value!r}"
+        )
+    return value
+
+
+def validate_output_path(path: str | Path) -> Path:
+    """Return ``path`` as a Path if it names a ``*.xlsx`` file, else raise."""
+    destination = Path(path)
+    if (
+        destination.suffix.lower() != OUTPUT_EXTENSION
+        or not destination.stem
+    ):
+        raise ValueError(
+            f"Excel output path must end with {OUTPUT_EXTENSION} and have a "
+            f"non-empty file name: {str(path)!r}"
+        )
+    return destination
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -85,6 +135,7 @@ def load_config(
         "output_filename": "ATEN_SIZE_PROFILER_OUTPUT_FILENAME",
         "record_stride": "ATEN_SIZE_PROFILER_RECORD_STRIDE",
         "record_stack": "ATEN_SIZE_PROFILER_RECORD_STACK",
+        "record_scalar_args": "ATEN_SIZE_PROFILER_RECORD_SCALAR_ARGS",
         "target_iter": "ATEN_SIZE_PROFILER_TARGET_ITER",
         "iteration_mode": "ATEN_SIZE_PROFILER_ITERATION_MODE",
     }
@@ -97,8 +148,8 @@ def load_config(
     return ProfilerConfig(
         enabled=_parse_bool(values.get("enabled", True), "enabled"),
         output_dir=output_dir,
-        output_filename=str(
-            values.get("output_filename", DEFAULT_OUTPUT_FILENAME)
+        output_filename=validate_output_filename(
+            str(values.get("output_filename", DEFAULT_OUTPUT_FILENAME))
         ),
         record_stride=_parse_bool(
             values.get("record_stride", True),
@@ -108,7 +159,13 @@ def load_config(
             values.get("record_stack", False),
             "record_stack",
         ),
+        record_scalar_args=_parse_bool(
+            values.get("record_scalar_args", True),
+            "record_scalar_args",
+        ),
         target_iter=target_iter,
-        iteration_mode=str(values.get("iteration_mode", "forward")),
+        iteration_mode=_parse_iteration_mode(
+            values.get("iteration_mode", "forward")
+        ),
         config_file=config_path,
     )

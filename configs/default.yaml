@@ -3,5 +3,6 @@ output_dir: ./aten_size_reports
 output_filename: aten_size_profile_size.xlsx
 record_stride: true
 record_stack: false
+record_scalar_args: true
 iteration_mode: forward
 target_iter:

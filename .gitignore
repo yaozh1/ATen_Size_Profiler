@@ -8,5 +8,9 @@
 /packages/
 /build/
 /dist/
+/*.egg-info/
+**/.pytest_cache/
+.coverage
+htmlcov/
 **/__pycache__/
 *.py[cod]

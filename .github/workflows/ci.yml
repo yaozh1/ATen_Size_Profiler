@@ -1,0 +1,112 @@
+# GitHub Actions CI for ATen Size Profiler.
+#
+# All jobs reuse tests/run_regression.py on CPU-only PyTorch. This workflow
+# only validates the source tree; it does not publish wheels or releases.
+#
+# - smoke:             every branch push, pull request and manual run.
+# - core:              pull requests and pushes to main or release/*.
+# - installed-package: pull requests and pushes to main or release/*; builds
+#                      a wheel inside the job only to verify the installed
+#                      layout.
+# - full:              manual runs (workflow_dispatch) only.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.10"
+  # Pin the validated PyTorch release; CPU wheels keep the jobs small.
+  # GPU/RCCL checks run on dedicated machines outside CI.
+  TORCH_VERSION: "2.13.0"
+  TORCH_INDEX_URL: "https://download.pytorch.org/whl/cpu"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --index-url "$TORCH_INDEX_URL" "torch==$TORCH_VERSION"
+          python -m pip install setuptools wheel PyYAML openpyxl
+          python -c "import torch; print(torch.__version__)"
+      - name: Compile sources
+        run: python -m compileall -q aten_size_profiler examples tests
+      - name: Smoke regression
+        run: python tests/run_regression.py --suite smoke
+
+  core:
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' ||
+        startsWith(github.ref, 'refs/heads/release/')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --index-url "$TORCH_INDEX_URL" "torch==$TORCH_VERSION"
+          python -m pip install setuptools wheel PyYAML openpyxl
+          python -c "import torch; print(torch.__version__)"
+      - name: Core regression with two-Rank CPU torchrun
+        run: python tests/run_regression.py --suite core --distributed
+
+  installed-package:
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' ||
+        startsWith(github.ref, 'refs/heads/release/')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --index-url "$TORCH_INDEX_URL" "torch==$TORCH_VERSION"
+          python -m pip install setuptools wheel PyYAML openpyxl
+          python -c "import torch; print(torch.__version__)"
+      - name: Installed package check
+        run: python tests/run_regression.py --suite smoke --installed
+
+  full:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --index-url "$TORCH_INDEX_URL" "torch==$TORCH_VERSION"
+          python -m pip install setuptools wheel PyYAML openpyxl
+          python -c "import torch; print(torch.__version__)"
+      - name: Full regression with two-Rank CPU torchrun
+        run: python tests/run_regression.py --suite full --distributed

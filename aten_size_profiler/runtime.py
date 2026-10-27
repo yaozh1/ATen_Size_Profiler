@@ -2,13 +2,30 @@ from __future__ import annotations
 
 import atexit
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from torch._C import _pop_torch_dispatch_stack, _push_on_torch_dispatch_stack
+from torch.utils._python_dispatch import _get_current_dispatch_mode
+from torch.utils._python_dispatch import _get_current_dispatch_mode_stack
+
 from .collector import AtenCollector
-from .config import ProfilerConfig, load_config
-from .distributed import RankInfo, get_rank_info, ranked_output_path
+from .config import (
+    VALID_ITERATION_MODES,
+    ProfilerConfig,
+    load_config,
+    validate_output_filename,
+)
+from .distributed import (
+    RankInfo,
+    get_rank_info,
+    install_rank_observer,
+    ranked_output_path,
+    reset_rank_info_cache,
+    uninstall_rank_observer,
+)
 from .dispatch_mode import AtenSizeMode
 from .exporter import export_collector
 from .iteration import IterationController, IterationHooks
@@ -18,6 +35,7 @@ from .iteration import IterationController, IterationHooks
 class RuntimeState:
     config: ProfilerConfig
     mode: AtenSizeMode
+    mode_entered: bool = False
     active: bool = True
     exported: bool = False
     export_suppressed: bool = False
@@ -29,6 +47,30 @@ class RuntimeState:
 
 _state: RuntimeState | None = None
 _atexit_registered = False
+
+
+def _remove_from_dispatch_stack(mode: AtenSizeMode) -> bool:
+    if not any(
+        current is mode for current in _get_current_dispatch_mode_stack()
+    ):
+        return False
+    if _get_current_dispatch_mode() is mode:
+        mode.__exit__(None, None, None)
+        return True
+
+    # Modes above the profiler are lifted off and pushed back without
+    # calling their __exit__/__enter__, which may be non-reentrant or reset
+    # their state. The dispatch flags those modes restore on exit are left
+    # as saved, so is_in_torch_dispatch_mode() may stay True afterwards.
+    modes_above: list[Any] = []
+    try:
+        while _get_current_dispatch_mode() is not mode:
+            modes_above.append(_pop_torch_dispatch_stack(None))
+        _pop_torch_dispatch_stack(None)
+    finally:
+        for other_mode in reversed(modes_above):
+            _push_on_torch_dispatch_stack(other_mode)
+    return True
 
 
 def _register_atexit() -> None:
@@ -43,12 +85,20 @@ def start_profiler(config: ProfilerConfig | None = None) -> AtenSizeMode:
     if _state is not None and _state.active:
         return _state.mode
 
+    reset_rank_info_cache()
     profiler_config = config if config is not None else load_config()
+    if profiler_config.iteration_mode not in VALID_ITERATION_MODES:
+        allowed = ", ".join(sorted(VALID_ITERATION_MODES))
+        raise ValueError(
+            f"iteration_mode must be one of: {allowed}"
+        )
+    validate_output_filename(profiler_config.output_filename)
     mode = AtenSizeMode(
         collector=AtenCollector(),
         enabled=profiler_config.enabled,
         record_stride=profiler_config.record_stride,
         record_stack=profiler_config.record_stack,
+        record_scalar_args=profiler_config.record_scalar_args,
     )
     iteration_controller = None
     iteration_hooks = None
@@ -66,10 +116,14 @@ def start_profiler(config: ProfilerConfig | None = None) -> AtenSizeMode:
         iteration_controller.initialize()
         iteration_hooks = IterationHooks(iteration_controller)
         iteration_hooks.install()
-    mode.__enter__()
+    mode_entered = profiler_config.enabled
+    if mode_entered:
+        install_rank_observer()
+        mode.__enter__()
     _state = RuntimeState(
         config=profiler_config,
         mode=mode,
+        mode_entered=mode_entered,
         iteration_controller=iteration_controller,
         iteration_hooks=iteration_hooks,
     )
@@ -82,23 +136,53 @@ def _metadata_for_state(
     rank_info: RankInfo,
 ) -> dict[str, Any]:
     config = state.config
+    hooks = state.iteration_hooks
+    iteration_status = (
+        state.iteration_controller.status()
+        if state.iteration_controller is not None
+        else None
+    )
     return {
         "config_file": str(config.config_file or ""),
         "configured_enabled": config.enabled,
         "configured_output_dir": str(config.output_dir),
         "configured_output_filename": config.output_filename,
         "iteration_mode": config.iteration_mode,
+        "iteration_phase": (
+            iteration_status["phase"]
+            if iteration_status is not None
+            else "not configured"
+        ),
+        "iteration_complete": (
+            iteration_status["phase"] == "FINISHED"
+            if iteration_status is not None
+            else ""
+        ),
         "target_iter": (
             config.target_iter if config.target_iter is not None else ""
         ),
         "record_stride": config.record_stride,
         "record_stack": config.record_stack,
+        "record_scalar_args": config.record_scalar_args,
         "global_rank": rank_info.rank,
         "world_size": rank_info.world_size,
         "local_rank": (
             rank_info.local_rank if rank_info.local_rank is not None else ""
         ),
         "distributed_initialized": rank_info.initialized,
+        "forward_root_module": (
+            hooks.root_module_name or "" if hooks is not None else ""
+        ),
+        "other_top_level_modules": (
+            sorted(hooks.other_top_level_modules)
+            if hooks is not None
+            else []
+        ),
+        "parameterized_non_root_modules": (
+            sorted(hooks.parameterized_non_root_modules)
+            if hooks is not None
+            else []
+        ),
     }
 
 
@@ -107,11 +191,28 @@ def stop_profiler(export: bool = True) -> Path | None:
         return None
     if not export:
         _state.export_suppressed = True
+    rank_info = get_rank_info()
     if _state.active:
+        uninstall_rank_observer()
         if _state.iteration_hooks is not None:
             _state.iteration_hooks.uninstall()
-        _state.mode.__exit__(None, None, None)
+        # Stop recording even if the mode cannot be popped here.
+        _state.mode.enabled = False
         _state.active = False
+        if _state.mode_entered:
+            _state.mode_entered = False
+            if not _remove_from_dispatch_stack(_state.mode):
+                warnings.warn(
+                    "aten_size_profiler: the profiler TorchDispatchMode is "
+                    "not on this thread's mode stack, so it was only "
+                    "disabled. stop_profiler() may have run in another "
+                    "thread or while modes were temporarily removed, or a "
+                    "TorchDispatchMode that the profiler was started inside "
+                    "of exited first; that __exit__ pops the top mode, so "
+                    "it removed the profiler and left itself on the stack.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
     if (
         export
@@ -119,7 +220,10 @@ def stop_profiler(export: bool = True) -> Path | None:
         and not _state.exported
         and not _state.export_suppressed
     ):
-        rank_info = get_rank_info()
+        if _state.iteration_controller is not None:
+            iteration_status = _state.iteration_controller.status()
+            if iteration_status["phase"] != "FINISHED":
+                _state.mode.collector.clear()
         _state.output_path = export_collector(
             _state.mode.collector,
             ranked_output_path(_state.config.output_path, rank_info),

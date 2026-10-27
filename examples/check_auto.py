@@ -237,8 +237,8 @@ def run() -> None:
                 "output_filename": "yaml_config_size.xlsx",
                 "record_stride": False,
                 "record_stack": True,
-                "iteration_mode": "manual",
-                "target_iter": 7,
+                "iteration_mode": "forward",
+                "target_iter": 0,
             },
             sort_keys=False,
         ),
@@ -249,10 +249,14 @@ def run() -> None:
         """
         import torch
 
+        class MatMul(torch.nn.Module):
+            def forward(self, left, right):
+                return torch.mm(left, right)
+
         left = torch.ones(2, 2)
         right = torch.ones(2, 2)
         import aten_size_profiler
-        torch.mm(left, right)
+        MatMul()(left, right)
         """,
         REPORT_DIR,
         "ignored_by_yaml_size.xlsx",
@@ -269,7 +273,10 @@ def run() -> None:
     assert metadata["record_stride"] is False
     assert metadata["record_stack"] is True
     assert metadata["configured_enabled"] is True
-    assert metadata["target_iter"] == 7
+    assert metadata["target_iter"] == 0
+    assert metadata["iteration_mode"] == "forward"
+    assert metadata["iteration_complete"] is True
+    assert {row[12] for row in detail_rows} == {0}
     assert detail_rows[0][7] == "[null,null]"
     assert detail_rows[0][11]
     workbook.close()

@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aten-size-profiler"
 dynamic = ["version"]
 description = "ATen operator input shape and size profiler for PyTorch Eager workloads"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.13",
