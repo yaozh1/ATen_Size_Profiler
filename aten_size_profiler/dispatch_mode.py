@@ -99,6 +99,7 @@ class AtenSizeMode(TorchDispatchMode):
         record_stride: bool = True,
         record_stack: bool = False,
         record_scalar_args: bool = True,
+        record_memory_format: bool = False,
     ) -> None:
         super().__init__()
         self.collector = collector if collector is not None else AtenCollector()
@@ -106,6 +107,7 @@ class AtenSizeMode(TorchDispatchMode):
         self.record_stride = record_stride
         self.record_stack = record_stack
         self.record_scalar_args = record_scalar_args
+        self.record_memory_format = record_memory_format
         self.current_iteration: int | None = None
 
     @property
@@ -140,6 +142,7 @@ class AtenSizeMode(TorchDispatchMode):
             record_stride=self.record_stride,
             excluded_arg_indices=excluded_arg_indices,
             excluded_kwargs=excluded_kwargs,
+            record_memory_format=self.record_memory_format,
         )
         scalar_args = (
             collect_scalar_args(

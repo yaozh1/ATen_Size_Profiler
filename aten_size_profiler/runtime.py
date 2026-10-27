@@ -99,6 +99,7 @@ def start_profiler(config: ProfilerConfig | None = None) -> AtenSizeMode:
         record_stride=profiler_config.record_stride,
         record_stack=profiler_config.record_stack,
         record_scalar_args=profiler_config.record_scalar_args,
+        record_memory_format=profiler_config.record_memory_format,
     )
     iteration_controller = None
     iteration_hooks = None
@@ -164,6 +165,7 @@ def _metadata_for_state(
         "record_stride": config.record_stride,
         "record_stack": config.record_stack,
         "record_scalar_args": config.record_scalar_args,
+        "record_memory_format": config.record_memory_format,
         "global_rank": rank_info.rank,
         "world_size": rank_info.world_size,
         "local_rank": (
@@ -230,6 +232,7 @@ def stop_profiler(export: bool = True) -> Path | None:
             metadata=_metadata_for_state(_state, rank_info),
             iteration=_state.config.target_iter,
             rank=rank_info.rank,
+            record_memory_format=_state.config.record_memory_format,
         )
         _state.exported = True
         _state.export_count += 1

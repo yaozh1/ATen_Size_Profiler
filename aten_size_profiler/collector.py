@@ -19,6 +19,8 @@ class TensorInfo:
     numel: int
     element_size: int
     logical_bytes: int
+    # Only set when record_memory_format is enabled; see classify_memory_layout.
+    memory_layout: str | None = None
 
 
 @dataclass(frozen=True)
@@ -163,10 +165,48 @@ def _iter_scalar_values(
             active_containers.remove(container_id)
 
 
+MEMORY_LAYOUT_MIXED = "mixed"
+
+# dim -> (channels-last memory format, contiguous name, channels-last name).
+# The names describe the memory order only, not what the dimensions mean.
+_CHANNELS_LAST_LAYOUTS = {
+    4: (torch.channels_last, "NCHW", "NHWC"),
+    5: (torch.channels_last_3d, "NCDHW", "NDHWC"),
+}
+
+
+def classify_memory_layout(tensor: torch.Tensor) -> str | None:
+    """Classify ``tensor`` with ``is_contiguous()``; metadata only, no sync.
+
+    4D/5D tensors report the contiguous or channels-last name, ``ambiguous``
+    when both checks hold (for example size-1 C or spatial dimensions) and
+    ``non_contiguous`` when neither does. Other ranks report ``contiguous``
+    or ``non_contiguous``. Returns None when the tensor does not support
+    ``is_contiguous()`` (for example sparse CSR).
+    """
+    try:
+        contiguous = tensor.is_contiguous()
+        layouts = _CHANNELS_LAST_LAYOUTS.get(tensor.dim())
+        if layouts is None:
+            return "contiguous" if contiguous else "non_contiguous"
+        memory_format, contiguous_name, channels_last_name = layouts
+        channels_last = tensor.is_contiguous(memory_format=memory_format)
+    except RuntimeError:
+        return None
+    if contiguous and channels_last:
+        return "ambiguous"
+    if contiguous:
+        return contiguous_name
+    if channels_last:
+        return channels_last_name
+    return "non_contiguous"
+
+
 def _describe_tensor(
     path: str,
     tensor: torch.Tensor,
     record_stride: bool = True,
+    record_memory_format: bool = False,
 ) -> TensorInfo | None:
     try:
         shape = tuple(int(size) for size in tensor.shape)
@@ -178,6 +218,11 @@ def _describe_tensor(
         element_size = int(tensor.element_size())
     except RuntimeError:
         return None
+    # Classified separately so an unsupported is_contiguous() never drops a
+    # tensor that v0.2.1 would have recorded.
+    memory_layout = (
+        classify_memory_layout(tensor) if record_memory_format else None
+    )
     return TensorInfo(
         path=path,
         shape=shape,
@@ -187,6 +232,7 @@ def _describe_tensor(
         numel=numel,
         element_size=element_size,
         logical_bytes=numel * element_size,
+        memory_layout=memory_layout,
     )
 
 
@@ -196,6 +242,7 @@ def collect_input_tensors(
     record_stride: bool = True,
     excluded_arg_indices: AbstractSet[int] | None = None,
     excluded_kwargs: AbstractSet[str] | None = None,
+    record_memory_format: bool = False,
 ) -> tuple[TensorInfo, ...]:
     tensor_infos: list[TensorInfo] = []
     active_containers: set[int] = set()
@@ -214,6 +261,7 @@ def collect_input_tensors(
                 path,
                 tensor,
                 record_stride=record_stride,
+                record_memory_format=record_memory_format,
             )
             if tensor_info is not None:
                 tensor_infos.append(tensor_info)
@@ -230,6 +278,7 @@ def collect_input_tensors(
                 path,
                 tensor,
                 record_stride=record_stride,
+                record_memory_format=record_memory_format,
             )
             if tensor_info is not None:
                 tensor_infos.append(tensor_info)

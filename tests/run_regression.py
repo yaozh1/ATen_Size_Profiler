@@ -17,6 +17,7 @@ SMOKE_CHECKS = [
 CORE_CHECKS = [
     *SMOKE_CHECKS,
     "examples/check_export.py",
+    "examples/check_memory_layout.py",
     "examples/check_auto.py",
     "examples/check_iteration.py",
     "examples/check_optimizer_lifecycle.py",

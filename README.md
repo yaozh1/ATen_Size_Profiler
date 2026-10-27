@@ -13,7 +13,8 @@ ATen Size Profiler 采集 PyTorch Eager 模式下 ATen 算子的输入 Tensor
   算子，模型代码只需 `import aten_size_profiler`。
 - 每个输入 Tensor 记录输入路径（如 `args[0]`）、shape、dtype、device、
   stride、numel、element_size 和 logical_bytes（`numel * element_size`）；
-  每次调用可选记录标量参数和 Python 调用栈。
+  每次调用可选记录标量参数和 Python 调用栈；可选记录内存布局（如
+  NCHW/NHWC）。
 - 支持在推理（`forward`）或标准单 Optimizer 训练（`optimizer_step`）中
   只采集指定的一个 iteration。
 - 导出五个 Sheet 的 Excel 报表；分布式运行时每个 Global Rank 独立导出。
@@ -105,6 +106,7 @@ python -c "import aten_size_profiler as p; print(p.__version__, p.__file__)"
 | `record_stride` | `true` | 是否记录 stride。 |
 | `record_stack` | `false` | 是否记录 Python 调用栈。 |
 | `record_scalar_args` | `true` | 是否记录标量参数。 |
+| `record_memory_format` | `false` | 是否记录输入 Tensor 的内存布局（`ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT`）。 |
 | `target_iter` | `null` | 采集的 iteration，从 0 开始；`null` 为持续采集。 |
 | `iteration_mode` | `forward` | `forward` 或 `optimizer_step`。 |
 
@@ -208,6 +210,15 @@ aten_size_profiler.stop_profiler(export=False)  # 停止且不导出
 `scalar_args` 为 `[]`，只有标量参数不同的调用合并为一行。完整规则见包内
 README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传入会重复
 累加。
+
+`record_memory_format: true` 时，按 `is_contiguous()` 和
+channels-last 判断把输入分为 `NCHW`/`NHWC`（4D）、`NCDHW`/`NDHWC`（5D）、
+`ambiguous`、`non_contiguous`，其他维度分为 `contiguous`/`non_contiguous`；
+名称只表示内存排列顺序，不代表维度语义。`input_tensors` 末尾追加
+`memory_layout`，`detail` 和 `unique_shapes` 末尾追加
+`input_memory_layouts`；关闭时列结构与 0.2.1 相同。布局不参与去重，
+`record_stride: false` 时同一分组内布局不一致的输入显示为 `mixed`。详见
+包内 README 的“内存布局”。
 
 ## 已知限制
 
