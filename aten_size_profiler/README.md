@@ -171,7 +171,7 @@ torchrun --standalone --nproc_per_node=2 your_model.py
 
 `record_memory_format: true`（或
 `ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT=true`）时，按 PyTorch
-`is_contiguous()` 判断每个输入 Tensor 的内存布局：
+`is_contiguous()` 判断每个 4D、5D 输入 Tensor 的内存布局：
 
 | 维度 | `is_contiguous()` / channels-last 判断 | 结果 |
 | --- | --- | --- |
@@ -181,19 +181,20 @@ torchrun --standalone --nproc_per_node=2 your_model.py
 | 5D | `False` / `True`（`torch.channels_last_3d`） | `NDHWC` |
 | 4D、5D | `True` / `True` | `ambiguous` |
 | 4D、5D | `False` / `False` | `non_contiguous` |
-| 其他维度 | `True` 或 `False` | `contiguous` 或 `non_contiguous` |
 
 `NCHW`/`NHWC` 等名称只表示内存排列顺序，不代表 Tensor 各维度的语义。
 `ambiguous` 常见于 C=1、H=W=1 或空 Tensor 等两种格式都成立的情况。
-不支持 `is_contiguous()` 的输入（例如稀疏 CSR）记为 `null`。
+其他维度的 Tensor 不调用 `is_contiguous()`，布局记为 `null`，但仍和原来
+一样记录，shape、stride 等列和统计不变。不支持 `is_contiguous()` 的
+4D、5D 输入（例如批量稀疏 CSR）同样记为 `null`。
 
 开启后在原有列之后追加一列，五个 Sheet 和其他列不变；关闭时报表列与
 0.2.1 相同：
 
 | Sheet | 新列 | 内容 |
 | --- | --- | --- |
-| `input_tensors` | `memory_layout` | 该输入的布局。 |
-| `detail` | `input_memory_layouts` | 按输入顺序排列的布局列表，例如 `["NHWC","NHWC"]`。 |
+| `input_tensors` | `memory_layout` | 该输入的布局；非 4D/5D 输入为空。 |
+| `detail` | `input_memory_layouts` | 按输入顺序排列的布局列表，非 4D/5D 输入用 `null` 占位，例如 `["NHWC","NHWC",null]`。 |
 | `unique_shapes` | `input_memory_layouts` | 该分组内所有调用的布局；同一输入位置布局不一致时为 `mixed`。 |
 
 内存布局不参与 `unique_shapes` 去重，也不改变 `record_stride` 的含义。

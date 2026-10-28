@@ -6,13 +6,15 @@
 
 - 新增配置 `record_memory_format`（默认 `false`），支持 YAML 和环境变量
   `ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT`。开启后按 `is_contiguous()`
-  记录输入 Tensor 的内存布局：4D 为 `NCHW`/`NHWC`，5D 为
+  记录 4D、5D 输入 Tensor 的内存布局：4D 为 `NCHW`/`NHWC`，5D 为
   `NCDHW`/`NDHWC`，两种格式都成立为 `ambiguous`，都不成立为
-  `non_contiguous`；其他维度为 `contiguous`/`non_contiguous`；不支持
-  `is_contiguous()` 的输入记为 `null`。名称只表示内存排列顺序。
+  `non_contiguous`。其他维度不调用 `is_contiguous()`，布局记为 `null`，
+  Tensor 照常记录；不支持 `is_contiguous()` 的 4D、5D 输入也记为
+  `null`。名称只表示内存排列顺序。
 - 开启时 `input_tensors` 末尾追加 `memory_layout`，`detail` 和
-  `unique_shapes` 末尾追加 `input_memory_layouts`；`unique_shapes` 中同一
-  分组布局不一致的输入显示为 `mixed`。关闭时列结构与 0.2.1 相同。
+  `unique_shapes` 末尾追加 `input_memory_layouts`，列表中非 4D/5D 输入用
+  `null` 占位；`unique_shapes` 中同一分组布局不一致的输入显示为 `mixed`。
+  关闭时列结构与 0.2.1 相同。
 - `metadata` 新增 `record_memory_format`。
 - `export_collector()` 新增关键字参数 `record_memory_format`，默认按记录
   中是否存在布局自动决定是否输出布局列。

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import torch
 from openpyxl import load_workbook
+from torch.overrides import TorchFunctionMode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -65,6 +66,17 @@ def _devices() -> list[torch.device]:
     if torch.cuda.is_available():
         devices.append(torch.device("cuda"))
     return devices
+
+
+class _IsContiguousCounter(TorchFunctionMode):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        if func is torch.Tensor.is_contiguous:
+            self.calls += 1
+        return func(*args, **(kwargs or {}))
 
 
 def _read(path: Path) -> dict[str, list[list]]:
@@ -130,30 +142,41 @@ def check_classification() -> None:
             ("5D D=H=W=1",
              torch.randn(2, 3, 1, 1, 1, device=device), "ambiguous"),
             ("5D transposed", x5.transpose(1, 2), "non_contiguous"),
-            ("0D", torch.tensor(1.0, device=device), "contiguous"),
-            ("1D", torch.randn(8, device=device), "contiguous"),
-            ("1D strided", torch.randn(8, device=device)[::2], "non_contiguous"),
-            ("2D", torch.randn(3, 4, device=device), "contiguous"),
-            ("2D transposed", torch.randn(3, 4, device=device).t(),
-             "non_contiguous"),
+            # Only 4D/5D tensors are classified.
+            ("0D", torch.tensor(1.0, device=device), None),
+            ("1D", torch.randn(8, device=device), None),
+            ("1D strided", torch.randn(8, device=device)[::2], None),
+            ("2D", torch.randn(3, 4, device=device), None),
+            ("2D transposed", torch.randn(3, 4, device=device).t(), None),
             ("3D permuted", torch.randn(2, 3, 4, device=device).permute(0, 2, 1),
-             "non_contiguous"),
-            ("6D", torch.randn(1, 2, 1, 2, 1, 2, device=device), "contiguous"),
+             None),
+            ("6D", torch.randn(1, 2, 1, 2, 1, 2, device=device), None),
         ]
         for name, tensor, expected in cases:
             actual = classify_memory_layout(tensor)
             assert actual == expected, (device, name, actual, expected)
+
+    # Other ranks never reach is_contiguous(); 4D/5D call it twice.
+    for tensor, expected_calls in (
+        (torch.tensor(1.0), 0), (torch.randn(8), 0), (torch.randn(3, 4), 0),
+        (torch.randn(2, 3, 4), 0), (torch.randn(1, 2, 1, 2, 1, 2), 0),
+        (torch.randn(2, 3, 4, 5), 2), (torch.randn(1, 2, 3, 4, 5), 2),
+    ):
+        with _IsContiguousCounter() as counter:
+            collect_input_tensors((tensor,), {}, record_memory_format=True)
+        assert counter.calls == expected_calls, (tensor.dim(), counter.calls)
 
     meta = torch.empty(2, 3, 4, 5, device="meta").contiguous(
         memory_format=torch.channels_last
     )
     assert classify_memory_layout(meta) == "NHWC"
 
-    # Sparse CSR has no is_contiguous(): the layout is None, and the tensor is
-    # still recorded exactly as without record_memory_format.
+    # Batched sparse CSR is 4D but has no is_contiguous(): the layout is None,
+    # and the tensor is still recorded exactly as without record_memory_format.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        csr = torch.randn(3, 3).to_sparse_csr()
+        csr = torch.randn(2, 2, 3, 3).to_sparse_csr()
+    assert csr.dim() == 4
     assert classify_memory_layout(csr) is None
     plain = collect_input_tensors((csr,), {}, record_stride=False)
     layout = collect_input_tensors(
@@ -223,6 +246,7 @@ def _run_model(device: torch.device, **mode_options) -> AtenSizeMode:
         torch.relu(x.transpose(2, 3))
         torch.mm(matrix, matrix.t())
         torch.add(matrix, 1)
+        torch.addcmul(x, x.new_ones(8), x)
     return mode
 
 
@@ -244,15 +268,18 @@ def check_collection_compatibility() -> None:
             assert call_on.scalar_args == call_off.scalar_args
             assert len(call_on.inputs) == len(call_off.inputs)
             for tensor_on, tensor_off in zip(call_on.inputs, call_off.inputs):
-                assert tensor_on.memory_layout is not None
+                if len(tensor_on.shape) in (4, 5):
+                    assert tensor_on.memory_layout is not None, tensor_on
+                else:
+                    assert tensor_on.memory_layout is None, tensor_on
                 layouts.add(tensor_on.memory_layout)
                 restored = tensor_on.__class__(
                     **{**tensor_on.__dict__, "memory_layout": None}
                 )
                 assert restored == tensor_off, (tensor_on, tensor_off)
-        assert {
-            "NCHW", "NHWC", "NCDHW", "NDHWC", "non_contiguous", "contiguous",
-        } <= layouts, layouts
+        assert layouts == {
+            "NCHW", "NHWC", "NCDHW", "NDHWC", "non_contiguous", None,
+        }, layouts
         # The in-memory aggregates keep their v0.2.1 key.
         assert on.aggregates.keys() == off.aggregates.keys()
         for op_name, aggregate in on.aggregates.items():
@@ -316,7 +343,29 @@ def check_excel_columns(work_dir: Path) -> None:
             json.loads(row["input_memory_layouts"])
             for row in detail_rows if row["op_name"] == "aten.mm.default"
         ]
-        assert mm_layouts == [["contiguous", "non_contiguous"]]
+        assert mm_layouts == [[None, None]]
+        # Non-4D/5D inputs keep their place as null, so the list stays aligned
+        # with the input order of the other columns.
+        addcmul = [
+            row for row in detail_rows
+            if row["op_name"] == "aten.addcmul.default"
+        ]
+        assert len(addcmul) == 1
+        assert json.loads(addcmul[0]["input_shapes"]) == [
+            [2, 3, 8, 8], [8], [2, 3, 8, 8],
+        ]
+        assert json.loads(addcmul[0]["input_memory_layouts"]) == [
+            "NCHW", None, "NCHW",
+        ]
+        assert [
+            row["memory_layout"] for row in input_rows
+            if row["call_id"] == addcmul[0]["call_id"]
+        ] == ["NCHW", None, "NCHW"]
+        assert all(
+            (row["memory_layout"] is None)
+            == (len(json.loads(row["shape"])) not in (4, 5))
+            for row in input_rows
+        )
         # record_stride=true: different layouts have different strides, so
         # they stay separate rows without mixed values.
         unique_rows = _records(on, "unique_shapes")
@@ -331,6 +380,7 @@ def check_mixed_groups(work_dir: Path) -> None:
     for device in _devices():
         nchw = torch.randn(2, 3, 4, 5, device=device)
         nhwc = nchw.contiguous(memory_format=torch.channels_last)
+        vector = torch.randn(5, device=device)
         with AtenSizeMode(record_stride=False, record_memory_format=True) as mode:
             torch.relu(nchw)
             torch.relu(nhwc)
@@ -339,6 +389,8 @@ def check_mixed_groups(work_dir: Path) -> None:
             torch.add(nchw, nhwc)
             torch.mul(nhwc, nchw)
             torch.mul(nhwc, nchw)
+            torch.sub(nchw, vector)
+            torch.sub(nhwc, vector)
         report = _read(export_collector(
             mode.collector, work_dir / f"{device.type}_mixed.xlsx",
             record_memory_format=True,
@@ -346,7 +398,7 @@ def check_mixed_groups(work_dir: Path) -> None:
         groups = {
             row["op_name"]: row for row in _records(report, "unique_shapes")
         }
-        assert len(groups) == len(_records(report, "unique_shapes")) == 3
+        assert len(groups) == len(_records(report, "unique_shapes")) == 4
         # The first relu call is NCHW; the group must not report only it.
         assert groups["aten.relu.default"]["count"] == 3
         assert json.loads(
@@ -359,6 +411,10 @@ def check_mixed_groups(work_dir: Path) -> None:
         assert json.loads(
             groups["aten.mul.Tensor"]["input_memory_layouts"]
         ) == ["NHWC", "NCHW"]
+        # An unclassified (non-4D/5D) input stays null, not mixed.
+        assert json.loads(
+            groups["aten.sub.Tensor"]["input_memory_layouts"]
+        ) == ["mixed", None]
         assert groups["aten.relu.default"]["input_strides"] == "[null]"
         detail = [
             json.loads(row["input_memory_layouts"])
@@ -366,7 +422,7 @@ def check_mixed_groups(work_dir: Path) -> None:
         ]
         assert detail == [
             ["NCHW"], ["NHWC"], ["NCHW"], ["NCHW", "NCHW"], ["NCHW", "NHWC"],
-            ["NHWC", "NCHW"], ["NHWC", "NCHW"],
+            ["NHWC", "NCHW"], ["NHWC", "NCHW"], ["NCHW", None], ["NHWC", None],
         ]
         summary = {
             row["op_name"]: row for row in _records(report, "summary")
@@ -377,9 +433,9 @@ def check_mixed_groups(work_dir: Path) -> None:
 
 def _tensor_info(memory_layout: str | None) -> TensorInfo:
     return TensorInfo(
-        path="args[0]", shape=(2,), dtype="torch.float32", device="cpu",
-        stride=(1,), numel=2, element_size=4, logical_bytes=8,
-        memory_layout=memory_layout,
+        path="args[0]", shape=(1, 2, 2, 2), dtype="torch.float32",
+        device="cpu", stride=(8, 4, 2, 1), numel=8, element_size=4,
+        logical_bytes=32, memory_layout=memory_layout,
     )
 
 
@@ -398,7 +454,7 @@ def check_export_argument(work_dir: Path) -> None:
     assert report["detail"][1][-1] == "[null]"
 
     recorded = AtenCollector()
-    recorded.record("aten.relu.default", (_tensor_info("contiguous"),))
+    recorded.record("aten.relu.default", (_tensor_info("NCHW"),))
     recorded.record("aten.relu.default", (_tensor_info(None),))
     report = _read(export_collector(recorded, work_dir / "recorded.xlsx"))
     _assert_headers(report, with_layout=True)
@@ -494,7 +550,8 @@ def check_auto_enable(work_dir: Path) -> None:
                 for row in _records(report, "detail")
                 if row["op_name"] == "aten.convolution.default"
             ]
-            assert conv == [["NHWC", "NHWC", "contiguous"]], conv
+            # The 1D bias is not classified and stays a null placeholder.
+            assert conv == [["NHWC", "NHWC", None]], conv
             assert {
                 row["iteration"] for row in _records(report, "input_tensors")
             } == {1}
