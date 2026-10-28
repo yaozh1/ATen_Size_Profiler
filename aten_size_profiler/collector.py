@@ -19,7 +19,8 @@ class TensorInfo:
     numel: int
     element_size: int
     logical_bytes: int
-    # Only set when record_memory_format is enabled; see classify_memory_layout.
+    # Only set for 4D/5D inputs when record_memory_format is enabled; see
+    # classify_memory_layout.
     memory_layout: str | None = None
 
 
@@ -176,20 +177,20 @@ _CHANNELS_LAST_LAYOUTS = {
 
 
 def classify_memory_layout(tensor: torch.Tensor) -> str | None:
-    """Classify ``tensor`` with ``is_contiguous()``; metadata only, no sync.
+    """Classify a 4D/5D ``tensor`` with ``is_contiguous()``; no sync.
 
     4D/5D tensors report the contiguous or channels-last name, ``ambiguous``
     when both checks hold (for example size-1 C or spatial dimensions) and
-    ``non_contiguous`` when neither does. Other ranks report ``contiguous``
-    or ``non_contiguous``. Returns None when the tensor does not support
-    ``is_contiguous()`` (for example sparse CSR).
+    ``non_contiguous`` when neither does. Returns None for other ranks
+    without calling ``is_contiguous()``, and when the tensor does not support
+    ``is_contiguous()``.
     """
     try:
-        contiguous = tensor.is_contiguous()
         layouts = _CHANNELS_LAST_LAYOUTS.get(tensor.dim())
         if layouts is None:
-            return "contiguous" if contiguous else "non_contiguous"
+            return None
         memory_format, contiguous_name, channels_last_name = layouts
+        contiguous = tensor.is_contiguous()
         channels_last = tensor.is_contiguous(memory_format=memory_format)
     except RuntimeError:
         return None

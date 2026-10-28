@@ -212,13 +212,13 @@ README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传�
 累加。
 
 `record_memory_format: true` 时，按 `is_contiguous()` 和
-channels-last 判断把输入分为 `NCHW`/`NHWC`（4D）、`NCDHW`/`NDHWC`（5D）、
-`ambiguous`、`non_contiguous`，其他维度分为 `contiguous`/`non_contiguous`；
-名称只表示内存排列顺序，不代表维度语义。`input_tensors` 末尾追加
-`memory_layout`，`detail` 和 `unique_shapes` 末尾追加
-`input_memory_layouts`；关闭时列结构与 0.2.1 相同。布局不参与去重，
-`record_stride: false` 时同一分组内布局不一致的输入显示为 `mixed`。详见
-包内 README 的“内存布局”。
+channels-last 判断把 4D、5D 输入分为 `NCHW`/`NHWC`（4D）、
+`NCDHW`/`NDHWC`（5D）、`ambiguous`、`non_contiguous`；其他维度的输入照常
+记录，布局为 `null`。名称只表示内存排列顺序，不代表维度语义。
+`input_tensors` 末尾追加 `memory_layout`，`detail` 和 `unique_shapes`
+末尾追加 `input_memory_layouts`（非 4D/5D 输入用 `null` 占位）；关闭时
+列结构与 0.2.1 相同。布局不参与去重，`record_stride: false` 时同一分组内
+布局不一致的输入显示为 `mixed`。详见包内 README 的“内存布局”。
 
 ## 已知限制
 
