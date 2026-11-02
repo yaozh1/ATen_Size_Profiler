@@ -22,6 +22,20 @@
 内存布局不参与 `unique_shapes` 去重，不改变 `record_stride` 语义，不触发
 GPU 同步，不新增依赖。
 
+### 变更
+
+- `record_scalar_args` 默认值由 `true` 改为 `false`（`ProfilerConfig`、
+  `load_config()`、`AtenSizeMode` 和 `configs/default.yaml` 一致）。默认
+  不记录标量参数，`detail` 和 `unique_shapes` 的 `scalar_args` 为 `[]`，
+  只有标量参数不同的调用在 `unique_shapes` 中合并为一行，
+  `summary.unique_shape_count` 可能小于 0.2.1。需要按标量参数区分时设置
+  `record_scalar_args: true` 或
+  `ATEN_SIZE_PROFILER_RECORD_SCALAR_ARGS=true`。`export_collector()`
+  未传入该项时，`metadata.record_scalar_args` 默认记为 `false`。
+- PyTorch 最低版本由 2.13 调整为 2.9（`pyproject.toml` 依赖改为
+  `torch>=2.9`），维护者已确认 2.9.0 及以上可用；GitHub Actions 仍使用
+  CPU 版 PyTorch 2.13.0。
+
 ## 0.2.1
 
 v0.2.0 发布后的修复版本，不新增采集能力。

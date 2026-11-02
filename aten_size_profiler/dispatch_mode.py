@@ -98,7 +98,7 @@ class AtenSizeMode(TorchDispatchMode):
         enabled: bool = True,
         record_stride: bool = True,
         record_stack: bool = False,
-        record_scalar_args: bool = True,
+        record_scalar_args: bool = False,
         record_memory_format: bool = False,
     ) -> None:
         super().__init__()

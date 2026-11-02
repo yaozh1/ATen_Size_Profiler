@@ -217,6 +217,7 @@ def _run_training(output_dir: Path, order: str, fail: str) -> Report:
         ATEN_SIZE_PROFILER_TARGET_ITER="1",
         ATEN_SIZE_PROFILER_OUTPUT_DIR=str(output_dir),
         ATEN_SIZE_PROFILER_OUTPUT_FILENAME=report.name,
+        ATEN_SIZE_PROFILER_RECORD_SCALAR_ARGS="true",
     )
     return _read_report(report)
 
