@@ -24,7 +24,7 @@ output_dir: ./aten_size_reports
 output_filename: model_size.xlsx
 record_stride: true
 record_stack: false
-record_scalar_args: true
+record_scalar_args: false
 iteration_mode: forward
 target_iter: 0
 YAML
@@ -56,7 +56,7 @@ python your_model.py
 | `output_filename` | `aten_size_profile_size.xlsx` | 报表文件名，规则见下文。 |
 | `record_stride` | `true` | 是否记录 stride。 |
 | `record_stack` | `false` | 是否记录 Python 调用栈。 |
-| `record_scalar_args` | `true` | 是否记录标量参数并纳入 `unique_shapes` 去重键。 |
+| `record_scalar_args` | `false` | 是否记录标量参数并纳入 `unique_shapes` 去重键。 |
 | `record_memory_format` | `false` | 是否记录输入 Tensor 的内存布局，规则见“内存布局”。 |
 | `target_iter` | `null` | 采集的 iteration，从 0 开始；`null` 表示不启用 iteration 窗口，即持续采集。 |
 | `iteration_mode` | `forward` | `forward` 或 `optimizer_step`。 |
@@ -145,7 +145,8 @@ torchrun --standalone --nproc_per_node=2 your_model.py
   不包含输入路径。输入顺序不同（例如 `mul(a, b)` 和 `mul(b, a)` 且两者
   元数据不同）时分为两行。
 - 加上该次调用的 `scalar_args`，即参数位置和值组成的列表，例如
-  `[["args[1][0]","1"]]`。与默认值相同的参数通常不会传到 dispatch 层，
+  `[["args[1][0]","1"]]`；默认不记录（`record_scalar_args: false`），
+  此时为 `[]`。与默认值相同的参数通常不会传到 dispatch 层，
   因此 `sum(x, 1)` 与 `sum(x, 1, keepdim=False)` 合并为一行。
 
 配置开关对去重的影响：
@@ -154,8 +155,8 @@ torchrun --standalone --nproc_per_node=2 your_model.py
 | --- | --- | --- |
 | `record_stride: true`（默认） | 实际 stride，例如 `[[6,1]]` | 只有 stride 不同的调用分为多行。 |
 | `record_stride: false` | `unique_shapes`、`detail` 中为 `null`，`input_tensors` 中为空 | 只有 stride 不同的调用合并为一行。 |
-| `record_scalar_args: true`（默认） | 标量参数列表 | 只有标量参数不同的调用分为多行。 |
-| `record_scalar_args: false` | `unique_shapes`、`detail` 中为 `[]` | 只有标量参数不同的调用合并为一行。 |
+| `record_scalar_args: true` | 标量参数列表 | 只有标量参数不同的调用分为多行。 |
+| `record_scalar_args: false`（默认） | `unique_shapes`、`detail` 中为 `[]` | 只有标量参数不同的调用合并为一行。 |
 
 `get_collector().aggregates` 返回的内存聚合是另一套口径：
 `OperatorAggregate.input_signature_counts` 和 `unique_input_count` 按每个

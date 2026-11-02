@@ -272,6 +272,7 @@ def run() -> None:
     detail_rows = _rows(workbook, "detail")
     assert metadata["record_stride"] is False
     assert metadata["record_stack"] is True
+    assert metadata["record_scalar_args"] is False
     assert metadata["configured_enabled"] is True
     assert metadata["target_iter"] == 0
     assert metadata["iteration_mode"] == "forward"
@@ -311,6 +312,7 @@ def run() -> None:
         assert config.output_filename == "env_priority_size.xlsx"
         assert config.record_stride is False
         assert config.record_stack is True
+        assert config.record_scalar_args is True
         assert config.iteration_mode == "optimizer_step"
         assert config.target_iter is None
         torch.mm(torch.ones(2, 2), torch.ones(2, 2))
@@ -325,6 +327,7 @@ def run() -> None:
             "ATEN_SIZE_PROFILER_OUTPUT_FILENAME": "env_priority_size.xlsx",
             "ATEN_SIZE_PROFILER_RECORD_STRIDE": "false",
             "ATEN_SIZE_PROFILER_RECORD_STACK": "true",
+            "ATEN_SIZE_PROFILER_RECORD_SCALAR_ARGS": "true",
             "ATEN_SIZE_PROFILER_ITERATION_MODE": "optimizer_step",
             "ATEN_SIZE_PROFILER_TARGET_ITER": "",
         },
@@ -341,7 +344,10 @@ def run() -> None:
         """
         import aten_size_profiler as profiler
 
-        assert profiler.load_config().iteration_mode == "forward"
+        config = profiler.load_config()
+        assert config.iteration_mode == "forward"
+        assert config.record_scalar_args is False
+        assert profiler.ProfilerConfig().record_scalar_args is False
         assert profiler.stop_profiler(export=False) is None
         """,
         REPORT_DIR,

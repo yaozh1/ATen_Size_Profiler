@@ -22,7 +22,7 @@ ATen Size Profiler 采集 PyTorch Eager 模式下 ATen 算子的输入 Tensor
 ## 环境要求
 
 - Python >= 3.10
-- PyTorch >= 2.13（Eager 模式）
+- PyTorch >= 2.9（Eager 模式）
 - PyYAML >= 6.0
 - openpyxl >= 3.1
 
@@ -105,7 +105,7 @@ python -c "import aten_size_profiler as p; print(p.__version__, p.__file__)"
 | `output_filename` | `aten_size_profile_size.xlsx` | 不含目录的 `.xlsx` 文件名。 |
 | `record_stride` | `true` | 是否记录 stride。 |
 | `record_stack` | `false` | 是否记录 Python 调用栈。 |
-| `record_scalar_args` | `true` | 是否记录标量参数。 |
+| `record_scalar_args` | `false` | 是否记录标量参数。 |
 | `record_memory_format` | `false` | 是否记录输入 Tensor 的内存布局（`ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT`）。 |
 | `target_iter` | `null` | 采集的 iteration，从 0 开始；`null` 为持续采集。 |
 | `iteration_mode` | `forward` | `forward` 或 `optimizer_step`。 |
@@ -206,9 +206,9 @@ aten_size_profiler.stop_profiler(export=False)  # 停止且不导出
 `unique_shapes` 和 `summary.unique_shape_count` 的去重键是：按输入顺序
 排列的每个输入 Tensor 的 shape、dtype、device、stride，加上该次调用的
 `scalar_args`；不含输入路径。`record_stride: false` 时 stride 记为
-`null`，只有 stride 不同的调用合并为一行；`record_scalar_args: false` 时
-`scalar_args` 为 `[]`，只有标量参数不同的调用合并为一行。完整规则见包内
-README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传入会重复
+`null`，只有 stride 不同的调用合并为一行；`record_scalar_args` 默认为
+`false`，此时 `scalar_args` 为 `[]`，只有标量参数不同的调用合并为一行，
+开启后按标量参数分为多行。完整规则见包内 README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传入会重复
 累加。
 
 `record_memory_format: true` 时，按 `is_contiguous()` 和
@@ -255,6 +255,7 @@ channels-last 判断把 4D、5D 输入分为 `NCHW`/`NHWC`（4D）、
 | --- | --- |
 | PyTorch 2.13.0（ROCm/HIP 6.3），CPU 与 AMD GPU | `full --distributed` 回归（含稳定性、真实模型推理和训练 CPU/GPU 各 4 组、CPU 双 Rank gloo）、`smoke --installed` 安装包检查、双 Rank RCCL DDP 通过。 |
 | PyTorch 2.14.0（HIP 7.2.26333），CPU 与 GPU | 维护者在独立环境中验证：`smoke`、`core` 回归，Mode 生命周期检查，CNN/Transformer 在 CPU/GPU 上的推理和训练，双卡 RCCL DDP，单机 8 卡真实模型 DDP 通过。稳定性检查（`check_stability`）和 `--installed` 不在本次验证范围内。 |
+| PyTorch 2.9.0 及以上 | 维护者确认支持；具体验证环境和检查项未在此记录。 |
 | NVIDIA CUDA、跨节点分布式 | 尚未验证。 |
 | GitHub Actions | `release/0.2.1`（`542dea8`）上 `smoke`、`core`、`installed-package` 通过；`full` 仅手动触发，尚未在 GitHub 上运行。 |
 
