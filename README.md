@@ -98,6 +98,24 @@ python -c "import aten_size_profiler as p; print(p.__version__, p.__file__)"
 `ATEN_SIZE_PROFILER_<配置项大写>` 覆盖，例如
 `ATEN_SIZE_PROFILER_TARGET_ITER=10`。
 
+`configs/default.yaml` 是配置模板，内容与默认值一致，工具不会自动读取。
+使用 YAML 时，把它复制到运行目录并改名为 `aten_size_profiler.yaml`，或者
+用 `ATEN_SIZE_PROFILER_CONFIG` 指定任意位置的文件：
+
+```bash
+# 方式一：放到启动 Python 进程时的当前工作目录
+cp /path/to/ATen_Size_Profiler/configs/default.yaml ./aten_size_profiler.yaml
+python your_model.py
+
+# 方式二：用环境变量指定路径
+ATEN_SIZE_PROFILER_CONFIG=/path/to/my_profiler.yaml python your_model.py
+```
+
+当前工作目录指启动 `python` 或 `torchrun` 的目录，不是模型脚本或本项目
+所在目录；pip 安装的包不包含 `configs/`。`ATEN_SIZE_PROFILER_CONFIG` 为
+相对路径时按当前工作目录解析，文件不存在时直接报 `FileNotFoundError`。
+实际读取的 YAML 路径记录在 `metadata.config_file`，未读取时为空。
+
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 是否采集。 |
@@ -292,7 +310,7 @@ GPU 和 RCCL 多卡检查不在 CI 中运行。
 ## 项目结构
 
 - `aten_size_profiler/`：Python 包源码和详细使用说明。
-- `configs/`：YAML 配置示例。
+- `configs/`：YAML 配置模板和示例，不会被自动读取，用法见“配置”。
 - `examples/`：回归检查脚本（`check_*.py`）。
 - `tests/run_regression.py`：统一回归入口。
 - `.github/workflows/ci.yml`：GitHub Actions 工作流。
