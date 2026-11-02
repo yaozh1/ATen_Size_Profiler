@@ -47,7 +47,9 @@ python your_model.py
 
 配置文件路径由 `ATEN_SIZE_PROFILER_CONFIG` 指定；未指定时读取当前工作
 目录下的 `aten_size_profiler.yaml`（存在时）。每个配置项都可以用
-`ATEN_SIZE_PROFILER_<配置项大写>` 环境变量覆盖。
+`ATEN_SIZE_PROFILER_<配置项大写>` 环境变量覆盖。项目中的
+`configs/default.yaml` 只是模板，不会被自动读取，用法见根目录 README
+的“配置”。
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
