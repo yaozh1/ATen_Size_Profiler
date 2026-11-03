@@ -245,10 +245,11 @@ channels-last 判断把 4D、5D 输入分为 `NCHW`/`NHWC`（4D）、
   报错，不生成报表。正式采集建议配置 `target_iter`。
 - **训练中穿插验证**：`optimizer_step` 模式下，step 之间的验证 forward
   （如 `torch.no_grad()` 下的 eval）会计入下一个训练 iteration。建议在
-  目标 iteration 完成后再进行验证；也可以用 `pause_profiler()` 和
-  `resume_profiler()` 包住验证代码，该方式已在单 Optimizer CPU 示例中
-  确认可排除验证调用，但恢复后到下一次 forward 之前的调用（如数据准备）
-  仍会计入，示例见包内 README。
+  目标 iteration 完成后再进行验证；也可以在验证前调用 `pause_profiler()`，
+  并紧贴下一次训练 forward 之前调用 `resume_profiler()`。该写法已在单
+  Optimizer CPU 示例中确认，调用记录的算子和输入 shape 与无验证运行一致。
+  `resume_profiler()` 与 forward 之间的调用（如数据准备）仍会计入，示例
+  见包内 README。
 - **超长单元格**：超过 32,767 字符的单元格截断为 32,767 字符并以
   `...<TRUNCATED>` 结尾，`metadata` 的 `truncated_cells` 和
   `truncated_sheets` 记录截断数量和所在 Sheet。

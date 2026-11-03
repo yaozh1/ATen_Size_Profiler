@@ -107,12 +107,14 @@ forward 边界，独立的 loss 模块不会被当作新的 iteration。如果�
 iteration。训练 step 之间穿插的验证 forward（例如每个 step 后在
 `torch.no_grad()` 下执行 eval）会计入下一个训练 iteration，污染目标
 iteration 的统计。建议在目标 iteration 完成后再进行验证；也可以在验证
-代码前后调用 `pause_profiler()` 和 `resume_profiler()`，该方式已在单
-Optimizer CPU 示例中确认可排除验证调用：
+前调用 `pause_profiler()`，并紧贴下一次训练 forward 之前调用
+`resume_profiler()`。该写法已在单 Optimizer CPU 示例中确认，调用记录的
+算子和输入 shape 与无验证运行一致：
 
 ```python
 for batch, target in dataloader:
     optimizer.zero_grad()
+    aten_size_profiler.resume_profiler()
     loss_fn(model(batch), target).backward()
     optimizer.step()
 
@@ -121,11 +123,12 @@ for batch, target in dataloader:
         model.eval()
         evaluate(model)
         model.train()
-    aten_size_profiler.resume_profiler()
 ```
 
-采用这种方式时，`resume_profiler()` 之后到下一次训练 forward 之前的调用
-（例如数据准备）也会计入目标 iteration。
+`resume_profiler()` 与 forward 之间的调用（例如数据准备）仍会计入目标
+iteration，因此数据准备和 `optimizer.zero_grad()` 应放在
+`resume_profiler()` 之前。未暂停时调用 `resume_profiler()` 没有影响，
+首轮循环和未执行验证的轮次可以使用同一写法。
 
 ## 输出报表
 
