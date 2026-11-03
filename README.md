@@ -123,7 +123,7 @@ ATEN_SIZE_PROFILER_CONFIG=/path/to/my_profiler.yaml python your_model.py
 | `output_filename` | `aten_size_profile_size.xlsx` | 不含目录的 `.xlsx` 文件名。 |
 | `record_stride` | `true` | 是否记录 stride。 |
 | `record_stack` | `false` | 是否记录 Python 调用栈。 |
-| `record_scalar_args` | `false` | 是否记录标量参数。 |
+| `record_scalar_args` | `true` | 是否记录标量参数。 |
 | `record_memory_format` | `false` | 是否记录输入 Tensor 的内存布局（`ATEN_SIZE_PROFILER_RECORD_MEMORY_FORMAT`）。 |
 | `target_iter` | `null` | 采集的 iteration，从 0 开始；`null` 为持续采集。 |
 | `iteration_mode` | `forward` | `forward` 或 `optimizer_step`。 |
@@ -224,9 +224,9 @@ aten_size_profiler.stop_profiler(export=False)  # 停止且不导出
 `unique_shapes` 和 `summary.unique_shape_count` 的去重键是：按输入顺序
 排列的每个输入 Tensor 的 shape、dtype、device、stride，加上该次调用的
 `scalar_args`；不含输入路径。`record_stride: false` 时 stride 记为
-`null`，只有 stride 不同的调用合并为一行；`record_scalar_args` 默认为
-`false`，此时 `scalar_args` 为 `[]`，只有标量参数不同的调用合并为一行，
-开启后按标量参数分为多行。完整规则见包内 README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传入会重复
+`null`，只有 stride 不同的调用合并为一行；`record_scalar_args: false` 时
+`scalar_args` 为 `[]`，只有标量参数不同的调用合并为一行。完整规则见包内
+README。`logical_bytes` 不代表实际显存占用，同一 Tensor 多次传入会重复
 累加。
 
 `record_memory_format: true` 时，按 `is_contiguous()` 和

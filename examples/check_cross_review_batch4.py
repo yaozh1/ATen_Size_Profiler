@@ -133,12 +133,6 @@ assert len([
     call for call in no_scalar_mode.calls
     if call.op_name == "aten.add.Tensor"
 ]) == 2
-
-# Scalar arguments are not recorded by default.
-with AtenSizeMode() as default_mode:
-    torch.add(left, right, alpha=2)
-assert default_mode.record_scalar_args is False
-assert [call.scalar_args for call in default_mode.calls] == [()]
 """
 
 

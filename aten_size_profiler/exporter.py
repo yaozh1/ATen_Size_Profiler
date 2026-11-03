@@ -138,7 +138,7 @@ def _default_metadata(
         "rank": "not configured",
         "record_stride": True,
         "record_stack": False,
-        "record_scalar_args": False,
+        "record_scalar_args": True,
     }
 
 
