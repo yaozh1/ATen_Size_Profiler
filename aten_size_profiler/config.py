@@ -23,7 +23,7 @@ class ProfilerConfig:
     output_filename: str = DEFAULT_OUTPUT_FILENAME
     record_stride: bool = True
     record_stack: bool = False
-    record_scalar_args: bool = False
+    record_scalar_args: bool = True
     target_iter: int | None = None
     iteration_mode: str = "forward"
     config_file: Path | None = None
@@ -163,7 +163,7 @@ def load_config(
             "record_stack",
         ),
         record_scalar_args=_parse_bool(
-            values.get("record_scalar_args", False),
+            values.get("record_scalar_args", True),
             "record_scalar_args",
         ),
         target_iter=target_iter,
