@@ -28,6 +28,16 @@ GPU 同步，不新增依赖。
   `torch>=2.9`），维护者已确认 2.9.0 及以上可用；GitHub Actions 仍使用
   CPU 版 PyTorch 2.13.0。
 
+### 修复
+
+- 设置了 `target_iter` 时，同时使用
+  `torch.profiler.profile(with_stack=True)` 会导致进程 SIGSEGV 退出（包括
+  Megatron-Bridge 的 `pytorch_profiler_collect_callstack`），与是否已过目标
+  iteration 和 `record_*` 开关无关。原因是 Profiler 替换的
+  `nn.Module.__call__` 第一个参数不叫 `self`，而 PyTorch 的 Python tracer
+  会按 `self` 读取模块对象。现已改名，并新增回归检查
+  `examples/check_torch_profiler.py`。0.2.1 受影响。
+
 ## 0.2.1
 
 v0.2.0 发布后的修复版本，不新增采集能力。

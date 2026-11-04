@@ -235,11 +235,16 @@ class IterationHooks:
         original_module_call = self._module_call
         hooks = self
 
+        # The first parameter must be named ``self``: with
+        # ``torch.profiler.profile(with_stack=True)`` the Python tracer treats
+        # frames of the current ``nn.Module.__call__`` as module calls and
+        # reads the local ``self``; any other name makes it crash (SIGSEGV).
         def wrapped_module_call(
-            module: nn.Module,
+            self: nn.Module,
             *args: Any,
             **kwargs: Any,
         ) -> Any:
+            module = self
             depth = getattr(thread_state, "module_depth", 0)
             is_iteration_module = (
                 depth == 0 and hooks._is_iteration_module(module)

@@ -224,6 +224,10 @@ torchrun --standalone --nproc_per_node=2 your_model.py
 Optimizer、自定义 iteration 边界、多个并列顶层模型 forward、跨线程执行、
 跨节点分布式恢复或 Excel Sheet 自动拆分。
 
+可以与 `torch.profiler.profile` 同时使用，包括 `with_stack=True`。0.2.1
+在设置 `target_iter` 时与 `with_stack=True` 同时使用会导致进程 SIGSEGV
+退出，需要升级；无法升级时关闭 `with_stack`。
+
 `target_iter` 为 `null` 时持续采集整个进程的全部调用，调用记录保存在
 内存中，内存占用随运行时间增长。当任一 Sheet 可能超过 Excel 的
 1,048,576 行限制时，Excel 导出会明确失败，不生成报表。长时间运行或
