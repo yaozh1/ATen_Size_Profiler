@@ -29,6 +29,7 @@ CORE_CHECKS = [
     "examples/check_cross_review_round3.py",
     "examples/check_codex_p1.py",
     "examples/check_mode_stack.py",
+    "examples/check_torch_profiler.py",
 ]
 
 FULL_CHECKS = [
