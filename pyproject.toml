@@ -8,11 +8,18 @@ dynamic = ["version"]
 description = "ATen operator input shape and size profiler for PyTorch Eager workloads"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "yoshua", email = "yaozuhua2077@126.com" },
+]
 dependencies = [
-    "torch>=2.9",
     "PyYAML>=6.0",
     "openpyxl>=3.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yaozh1/ATen_Size_Profiler"
+Repository = "https://github.com/yaozh1/ATen_Size_Profiler"
+Issues = "https://github.com/yaozh1/ATen_Size_Profiler/issues"
 
 [tool.setuptools.dynamic]
 version = {attr = "aten_size_profiler.__version__"}
