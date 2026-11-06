@@ -1,6 +1,10 @@
 # 变更记录
 
-## 未发布
+## 0.2.2
+
+v0.2.1 之后的版本：新增内存布局记录，放宽 PyTorch 版本要求，修复与
+`torch.profiler` 同时使用时的崩溃。Release 提供
+`aten_size_profiler-0.2.2-py3-none-any.whl`。
 
 ### 新增
 
@@ -24,9 +28,14 @@ GPU 同步，不新增依赖。
 
 ### 变更
 
-- PyTorch 最低版本由 2.13 调整为 2.9（`pyproject.toml` 依赖改为
-  `torch>=2.9`），维护者已确认 2.9.0 及以上可用；GitHub Actions 仍使用
-  CPU 版 PyTorch 2.13.0。
+- PyTorch 最低版本由 2.13 调整为 2.9，维护者已确认 2.9.0 及以上可用；
+  GitHub Actions 仍使用 CPU 版 PyTorch 2.13.0。
+- `pyproject.toml` 不再声明 PyTorch 依赖，pip 安装时不会安装或替换环境中
+  的 PyTorch；需预先安装与 CPU/CUDA/ROCm 匹配的 PyTorch。PyYAML、openpyxl
+  仍按依赖自动安装。
+- 包元数据新增作者和项目链接（Homepage、Repository、Issues）。
+- 根目录 README 精简；包内 README 改为按使用流程编写的说明，补充报表各
+  Sheet 字段和 metadata 字段说明。
 
 ### 修复
 
@@ -37,6 +46,17 @@ GPU 同步，不新增依赖。
   `nn.Module.__call__` 第一个参数不叫 `self`，而 PyTorch 的 Python tracer
   会按 `self` 读取模块对象。现已改名，并新增回归检查
   `examples/check_torch_profiler.py`。0.2.1 受影响。
+
+### 验证状态
+
+- PyTorch 2.13.0 CPU：`core --distributed` 回归通过，包括新增的
+  `check_torch_profiler.py`（该检查在修复前的代码上以 SIGSEGV 失败）。
+- Python 3.12、PyTorch 2.11.0（DTK 26.10，HIP 7.2）：Megatron-Bridge 4 节点
+  16 卡训练同时开启 `torch.profiler`（`with_stack=True`）与本工具
+  （`target_iter=1`、`optimizer_step`），训练正常完成，16 个 Rank 报表均
+  导出，抽查 Rank 0、8、15 的 `iteration_complete` 为 `true`。仅用于确认
+  该崩溃已修复，不代表支持 Megatron 等复杂训练引擎。
+- 未在 0.2.2 上重新运行：`full`、`--installed`、GPU 回归。
 
 ## 0.2.1
 
