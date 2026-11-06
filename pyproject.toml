@@ -9,7 +9,6 @@ description = "ATen operator input shape and size profiler for PyTorch Eager wor
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "torch>=2.9",
     "PyYAML>=6.0",
     "openpyxl>=3.1",
 ]
